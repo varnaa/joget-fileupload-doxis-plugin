@@ -1,6 +1,11 @@
 package ae.gcg.plugins.doxis.fileupload;
 
 import ae.gcg.plugins.doxis.fileupload.util.DoxisApiHelper;
+import okhttp3.Headers;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+import org.apache.tika.Tika;
+import org.apache.tika.mime.MimeTypes;
 import org.joget.apps.app.model.AppDefinition;
 import org.joget.apps.app.service.AppPluginUtil;
 import org.joget.apps.app.service.AppUtil;
@@ -309,6 +314,14 @@ public class DoxisFileUpload extends Element implements FormBuilderPaletteElemen
         String repositoryName = getPropertyString("repositoryName");
         String documentType = getPropertyString("documentType");
 
+        String meetingIDProperty = getPropertyString("meetingID");
+        String committeeNameProperty = getPropertyString("committeeName");
+        String committeDecisionNumberProperty = getPropertyString("committeeDecisionNumber");
+
+        String meetingID = formData.getRequestParameter(meetingIDProperty);
+        String committeeName = formData.getRequestParameter(committeeNameProperty);
+        String committeDecisionNumber = formData.getRequestParameter(committeDecisionNumberProperty);
+
 
         if (serverUrl.endsWith("/")) {
             serverUrl = serverUrl.substring(0, serverUrl.length() - 1);
@@ -335,15 +348,24 @@ public class DoxisFileUpload extends Element implements FormBuilderPaletteElemen
 
                 for (String value : values) {
                     // check if the file is in temp file
+                    LogUtil.info("RECEIVED VALUE ----> ", value);
                     File file = FileManager.getFileByPath(value);
-                    if (file != null) {
 
+                    if (file != null) {
+                     LogUtil.info("Value --> file !== null ", value );
                         // upload file to doxis edms
                         String documentId = "";
                         try {
-                            documentId = new DoxisApiHelper().createDocument(serverUrl, username, password, customerName, file, documentType, repositoryName);
+                            documentId = new DoxisApiHelper().createDocument(serverUrl, username, password, customerName, file, documentType, repositoryName, meetingID, committeeName, committeDecisionNumber);
                         } catch (IOException e) {
-                            throw new RuntimeException(e);
+                            // Convert stack trace to a single string
+                            StringWriter sw = new StringWriter();
+                            PrintWriter pw = new PrintWriter(sw);
+                            e.printStackTrace(pw);
+                            String stackTrace = sw.toString();
+
+                            // Log the stack trace using your custom LogUtil
+                            LogUtil.info("An Exception occurred while creating document: " + e.getMessage() , "\nStackTrace: " + stackTrace);
                         }
 
                         filePaths.add(value + "|" + documentId);
@@ -404,6 +426,50 @@ public class DoxisFileUpload extends Element implements FormBuilderPaletteElemen
         return rowSet;
     }
 
+    private String getExtension(String mimeType) {
+        switch (mimeType) {
+            case "application/x-tika-msoffice":
+                // This MIME type might be used when Tika is unsure about the exact Office format
+                // Defaulting to .docx but consider context or additional metadata if available
+                return ".doc";
+            case "application/vnd.ms-excel":
+                return ".xls";
+            case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                return ".xlsx";
+            case "application/vnd.ms-word":
+                return ".doc";
+            case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                return ".docx";
+            case "application/vnd.ms-powerpoint":
+                return ".ppt";
+            case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+                return ".pptx";
+            case "application/pdf":
+                return ".pdf";
+            case "application/zip":
+                // ZIP could be used for compressed files or as a container format for multiple file types like .docx, .xlsx
+                return ".zip";
+            case "application/x-mswrite":
+                // Older Microsoft Write format
+                return ".wri";
+            case "application/vnd.oasis.opendocument.text":
+                // OpenDocument Text
+                return ".odt";
+            case "application/vnd.oasis.opendocument.spreadsheet":
+                // OpenDocument Spreadsheet
+                return ".ods";
+            case "application/vnd.oasis.opendocument.presentation":
+                // OpenDocument Presentation
+                return ".odp";
+            // More cases can be added as necessary
+            default:
+                // Default to a generic binary file extension or throw an error if context requires it
+                return ".pdf";
+        }
+    }
+
+
+
     @Override
     public void webService(javax.servlet.http.HttpServletRequest request, javax.servlet.http.HttpServletResponse response) throws IOException, ServletException {
         String nonce = request.getParameter("_nonce");
@@ -426,23 +492,30 @@ public class DoxisFileUpload extends Element implements FormBuilderPaletteElemen
                 String customerName = jsonParams.getString("customerName");
                 String repositoryName = jsonParams.getString("repositoryName");
 
-                try (InputStream documentStream = new DoxisApiHelper().getDocument(serverUrl, username, password, customerName, documentId, repositoryName);
-                     OutputStream outStream = response.getOutputStream()) {
-                    if (documentStream == null) {
-                        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-                        return;
-                    }
+                Response externalApiResponse = new DoxisApiHelper().getDocument(serverUrl, username, password, customerName, documentId, repositoryName);
 
-                    response.setContentType("application/octet-stream");
-                    response.setHeader("Content-Disposition", "attachment; filename=\"" + documentId + ".pdf\"");
-
-                    byte[] buffer = new byte[4096];
-                    int bytesRead;
-                    while ((bytesRead = documentStream.read(buffer)) != -1) {
-                        outStream.write(buffer, 0, bytesRead);
+                try {
+                    Headers headers = externalApiResponse.headers();
+                    for (String headerName : headers.names()) {
+                        if (!headerName.equalsIgnoreCase("Content-Length")) { // Skip Content-Length to allow automatic handling
+                            response.setHeader(headerName, headers.get(headerName));
+                        }
                     }
+                    // Stream the response body to the servlet response
+                    try (ResponseBody body = externalApiResponse.body()) {
+                        InputStream documentStream = body.byteStream();
+                        byte[] buffer = new byte[4096];
+                        int bytesRead;
+                        while ((bytesRead = documentStream.read(buffer)) != -1) {
+                            response.getOutputStream().write(buffer, 0, bytesRead);
+                        }
+                        response.getOutputStream().flush();
+                    }
+                } finally {
+                    externalApiResponse.close();
                 }
             } catch (Exception e) {
+                LogUtil.info("Error downloading document: ", e.getMessage());
                 response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }
         }

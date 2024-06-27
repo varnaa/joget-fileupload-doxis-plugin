@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.util.Arrays;
 
 public class DoxisApiHelper {
     private static final String APPLICATION_JSON = "application/json";
@@ -18,30 +19,66 @@ public class DoxisApiHelper {
     private final String CREATE_DOCUMENT_API = "/restws/publicws/rest/api/v1/documents";
     private final OkHttpClient CLIENT = HttpClientFactory.getClient();
     private final String CLASS_NAME = this.getClass().getSimpleName();
+    private final String FILE_NAME_ATTRIBUTE_ID = "339a143f-94bd-4b30-a8c4-d2dcae1940b0";
+    //private final String FILE_NAME_ATTRIBUTE_ID = "a4832f35-d61f-440e-8354-f5581744c16a";
 
 
-    public String createDocument(String serverURL, String username, String password, String customerName, File file, String documentType, String repositoryName) throws IOException {
+    public String createDocument(String serverURL, String username, String password, String customerName, File file, String documentType, String repositoryName, String meetingNumber, String committeeName, String committeeDecisionNumber) throws IOException {
+        LogUtil.info(CLASS_NAME, "CREATE DOCUMENT PARAMETERS" + meetingNumber + committeeName + committeeDecisionNumber + documentType + repositoryName);
+
         MediaType jsonMediaType = MediaType.parse(APPLICATION_JSON);
+        String fileType = file.getName().split("\\.")[1];
+        LogUtil.info("FileType 0------->>>> ", fileType);
         JSONObject documentParamsObject = createDocumentParams(file, documentType);
+        if (fileType.equals("pdf")){
+            documentParamsObject.put("mimeTypeName", "application/pdf");
+        }else if (fileType.equals("doc")){
+            documentParamsObject.put("mimeTypeName", "application/msword");
+        }else if(fileType.equals("docx")){
+            documentParamsObject.put("mimeTypeName", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        }else if(fileType.equals("ptx") || fileType.equals("pptx")){
+            documentParamsObject.put("mimeTypeName", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+        }else if (fileType.equals("xlsx") || fileType.equals("xls")){
+            documentParamsObject.put("mimeTypeName", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        else{
+            documentParamsObject.put("mimeTypeName", "application/pdf");
+        }
         JSONArray attributesArray = new JSONArray();
         JSONObject attributesObject = new JSONObject();
-
-        //Date Attribute
-        attributesObject.put("attributeDefinitionUUID", "2b18b7c1-c85f-41ff-b18d-d22ce74038e0");
-        attributesObject.put("attributeDataType", "STRING");
-        String formattedDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
-        attributesObject.put("values", new JSONArray().put(formattedDate));
-        attributesArray.put(attributesObject);
-
-        //Name Attribute
-        attributesObject = new JSONObject();
-        attributesObject.put("attributeDefinitionUUID", "a4832f35-d61f-440e-8354-f5581744c16a");
+        attributesObject.put("attributeDefinitionUUID", FILE_NAME_ATTRIBUTE_ID);
         attributesObject.put("values", new JSONArray().put(file.getName()));
         attributesObject.put("attributeDataType", "STRING");
         attributesArray.put(attributesObject);
 
+        if(repositoryName.equals("Meetings_Docs")){
+            //MEETING Number
+            JSONObject meetingObject = new JSONObject();
+            meetingObject.put("attributeDefinitionUUID", "21ce7cc4-a13d-4ea7-8543-bbd521a41e88");
+            meetingObject.put("attributeDataType", "STRING");
+            meetingObject.put("values", new JSONArray().put(meetingNumber));
+            attributesArray.put(meetingObject);
+
+        }else{
+            //committee Name
+            JSONObject committeeNameObject = new JSONObject();
+            committeeNameObject.put("attributeDefinitionUUID", "cf0371e7-ff9e-4c87-a7cd-884d420f4f91");
+            committeeNameObject.put("attributeDataType", "STRING");
+            committeeNameObject.put("values", new JSONArray().put(committeeName));
+            attributesArray.put(committeeNameObject);
+
+            // committee decision number
+            JSONObject committeeNumberObject = new JSONObject();
+            committeeNumberObject.put("attributeDefinitionUUID", "30a67a6b-3cd4-4c5f-8819-d079676b7799");
+            committeeNumberObject.put("attributeDataType", "STRING");
+            committeeNumberObject.put("values", new JSONArray().put(committeeDecisionNumber));
+            attributesArray.put(committeeNumberObject);
+        }
+
         documentParamsObject.put("attributes", attributesArray);
+        LogUtil.info("Attributes JSON", attributesArray.toString());
         String documentParamsRequestBody = documentParamsObject.toString();
+        LogUtil.info("Request Body" , documentParamsRequestBody);
         RequestBody jsonBody = RequestBody.create(jsonMediaType, documentParamsRequestBody);
 
 
@@ -56,7 +93,8 @@ public class DoxisApiHelper {
         String documentUUID = null;
         try (Response response = CLIENT.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                LogUtil.info(CLASS_NAME, "Failed to create document. HTTP Status: " + response.code());
+                LogUtil.info("Meeting ID", meetingNumber);
+                LogUtil.info(CLASS_NAME, "Failed to create document. HTTP Status: " + response.code() + response.body().string());
                 return null;
             }
             if (response.body() == null) {
@@ -111,7 +149,7 @@ public class DoxisApiHelper {
     }
 
 
-    public InputStream getDocument(String serverURL, String username, String password, String customerName, String documentId, String repositoryName) throws IOException {
+    public Response getDocument(String serverURL, String username, String password, String customerName, String documentId, String repositoryName) throws IOException {
         String getURL = serverURL + "/restws/publicws/rest/api/v1/dmsRepositories/" + repositoryName + "/documents/" + documentId + "/versions/current/representations/default/contentObjects/0";
 
         Request request = new Request.Builder().url(getURL).addHeader("Authorization", getJWT(serverURL, username, password, customerName)).get().build();
@@ -121,7 +159,13 @@ public class DoxisApiHelper {
             LogUtil.info(CLASS_NAME, "Failed to fetch document. HTTP Status: " + response.code());
             throw new IOException("Failed to fetch document with ID: " + documentId + ". HTTP Status: " + response.code());
         }
-        return response.body().byteStream();
+
+        Headers headers = response.headers();
+        LogUtil.info(CLASS_NAME, "Content-Type: " + headers.get("Content-Type"));
+        LogUtil.info(CLASS_NAME, "Content-Length: " + headers.get("Content-Length"));
+        LogUtil.info(CLASS_NAME, "Content-Disposition: " + headers.get("Content-Disposition"));
+
+        return response;
     }
 
 

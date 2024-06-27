@@ -219,6 +219,37 @@
         "required": "True",
         "description": "@@ae.gcg.plugins.doxis.fileupload.documentTypeDescription@@",
         "value": "f3e26237-28d5-41d6-8e78-fd9e8cdd4ec6"
+      },
+      {
+        "label" : "@@ae.gcg.plugins.doxis.fileupload.fieldMapping@@",
+        "type" : "header"
+      },
+      {
+        "name" : "formDefId",
+        "label" : "@@ae.gcg.plugins.doxis.fileupload.form@@",
+        "type" : "selectbox",
+        "options_ajax": "[CONTEXT_PATH]/web/json/console/app[APP_PATH]/forms/options"
+      },
+      {
+        "name" : "meetingID",
+        "label" : "@@ae.gcg.plugins.doxis.fileupload.meetingID@@",
+        "type" : "selectbox",
+        "options_ajax_on_change" : "formDefId",
+        "options_ajax" : "[CONTEXT_PATH]/web/json/console/app[APP_PATH]/form/columns/options"
+      },
+      {
+        "name" : "committeeName",
+        "label" : "@@ae.gcg.plugins.doxis.fileupload.committeeName@@",
+        "type" : "selectbox",
+        "options_ajax_on_change" : "formDefId",
+        "options_ajax" : "[CONTEXT_PATH]/web/json/console/app[APP_PATH]/form/columns/options"
+      },
+      {
+        "name" : "committeeDecisionNumber",
+        "label" : "@@ae.gcg.plugins.doxis.fileupload.committeeDecisionNumber@@",
+        "type" : "selectbox",
+        "options_ajax_on_change" : "formDefId",
+        "options_ajax" : "[CONTEXT_PATH]/web/json/console/app[APP_PATH]/form/columns/options"
       }
     ]
   }
